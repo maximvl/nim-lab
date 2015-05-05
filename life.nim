@@ -1,4 +1,4 @@
-import math
+import math, threadpool
 import sdl2, sdl2/gfx
 
 discard sdl2.init(INIT_EVERYTHING)
@@ -97,11 +97,15 @@ proc update_cell(x: int, y: int): Cell =
   else:
     return EmptyCell
 
+proc update_row(field: var Field, row: int) =
+  for col in 0..size_x:
+    field[row][col] = update_cell(row, col)
+
 proc update_field() =
   var field2 = field
-  for row in 0..size_y:
-    for col in 0..size_x:
-      field2[row][col] = update_cell(row, col)
+  parallel:
+    for row in 0..size_y:
+      spawn update_row(field2, row)
   field = field2
 
 proc draw_net(step: int) =
@@ -154,7 +158,8 @@ while run_game:
       of AliveCell:
         field[x][y] = EmptyCell
 
-  let dt = fpsman.getFramerate() / 1000
+  # let dt = fpsman.getFramerate() / 1000
+  # echo dt
 
   render.setDrawColor 0, 0, 0, 255
   render.clear
@@ -164,7 +169,7 @@ while run_game:
 
   draw_field()
   render.present
-  fpsman.delay
+  # fpsman.delay
 
 destroy render
 destroy window
