@@ -4,17 +4,19 @@ import sdl2, sdl2/gfx
 discard sdl2.init(INIT_EVERYTHING)
 
 const 
-  size_x = 100
-  size_y = 100
+  size_x = 300
+  size_y = 300
 
 type 
-  Cell = enum EmptyCell, AliveCell # , SkipCell
-  Field = array[0..size_y, array[0..size_x, Cell]]
+  CellType = enum EmptyCell, AliveCell
+  Cell = tuple[kind: CellType, skip: bool]
+  FieldObj = array[0..size_y, array[0..size_x, Cell]]
+  Field = ref FieldObj
 
 let
   empty_color = uint32(SDL_DEFINE_PIXELFOURCC(255, 255, 255, 0))
   alive_color = uint32(SDL_DEFINE_PIXELFOURCC(0, 255, 0, 0))
-  cell_size = 7                 # pixels
+  cell_size = 2                 # pixels
   windowWidth = (cell_size * size_y).cint
   windowHeight = (cell_size * size_x).cint
   max_x = windowWidth
@@ -22,6 +24,7 @@ let
 
 var
   field: Field
+  field2: Field
   window = createWindow("Game Of Life", 100, 100,
                         windowWidth, windowHeight,
                         SDL_WINDOW_SHOWN)
@@ -35,8 +38,6 @@ var
                                  window_width,
                                  window_height)
 
-  # texture: TexturePtr
-
   surface = createRGBSurface(0,
                              window_width, window_height,
                              32,
@@ -45,27 +46,26 @@ var
                              0x000000FF,
                              0xFF000000)
 
+new(field)
+new(field2)
+
 proc draw_field() =
   texture.lockTexture(nil, addr(surface.pixels), addr(surface.pitch))
   for row in 0..size_y:
     for col in 0..size_x:
-      var color: uint32
-      case field[row][col]
-      # of SkipCell:
-      #   continue
-      of EmptyCell:
-        color = empty_color
-      of AliveCell:
-        color = alive_color
-      let
+      if field[row][col].skip:
+        continue
+      let 
         row2 = row*cell_size
         col2 = col*cell_size
-      var
-        rect = rect(cint(row2), cint(col2), 
-                    cint(row2 + cell_size), 
-                    cint(col2 + cell_size))
+        color = case field[row][col].kind
+        of EmptyCell:
+          empty_color
+        of AliveCell:
+          alive_color
+      var rect = rect(cint(row2), cint(col2), 
+                      cell_size.cint, cell_size.cint)
       surface.fillRect(addr[Rect](rect), color)
-  texture.updateTexture(nil, surface.pixels, surface.pitch)
   texture.unlockTexture()
 
 proc random_fill() =
@@ -74,23 +74,26 @@ proc random_fill() =
     for col in 0..size_x:
       let alive = bool(random(2))
       if alive:
-        field[row][col] = AliveCell
+        field[row][col].kind = AliveCell
       else:
-        field[row][col] = EmptyCell
+        field[row][col].kind = EmptyCell
+      field[row][col].skip = false
 
-proc reset_field() =
+proc reset_field(field: Field) =
   for row in 0..size_y:
     for col in 0..size_x:
-      field[row][col] = EmptyCell
+      field[row][col].kind = EmptyCell
+      field[row][col].skip = false
 
 proc bound(v: int, max_v: cint): int =
+  let max2 = max_v + 1
   if v < 0:
-    return max_v + v
-  elif v >= max_v:
-    return v - max_v
+    return max2 + v
+  elif v >= max2:
+    return v - max2
   return v
 
-proc alives_around(x: int, y: int): int =
+proc alives_around(field: Field, y: int, x: int): int =
   const coords = [(-1, -1), (-1, 0), (-1, 1),
                   (0,  -1),          (0, 1),
                   (1,  -1), (1,  0), (1, 1)]
@@ -99,33 +102,47 @@ proc alives_around(x: int, y: int): int =
     let
       x1 = bound(x + c[0], size_x)
       y1 = bound(y + c[1], size_y)
-    if field[x1][y1] == AliveCell:
+    if field[y1][x1].kind == AliveCell:
       result += 1
 
-proc update_cell(field: var Field, row: int, col: int) =
-  let alives = alives_around(row, col)
+proc update_cell(c: var Cell, x: int, y: int, alives: int) =
   case alives
   of 3:
-    if field[row][col] == EmptyCell:
-      field[row][col] = AliveCell
-    # else:
-    #   field[row][col] = SkipCell
+    if c.kind == EmptyCell:
+      c.kind = AliveCell
+      c.skip = false
+    else:
+      c.skip = true
   of 2:
-    # field[row][col] = SkipCell
-    discard
+    c.skip = true
   else:
-    if field[row][col] == AliveCell:
-      field[row][col] = EmptyCell
-    # else:
-    #   field[row][col] = SkipCell
+    if c.kind == AliveCell:
+      c.kind = EmptyCell
+      c.skip = false
+    else:
+      c.skip = true
+
+proc print_field(field: Field) =
+  for row in 0..size_y:
+    for col in 0..size_x:
+      case field[row][col].kind
+      of AliveCell:
+        write(stdout, "#")
+      of EmptyCell:
+        write(stdout, ".")
+    echo()
+  echo()
+
+proc update_row(field: Field, field2: Field, row: int) =
+  for col in 0..size_x:
+    let alives = alives_around(field, row, col)
+    field2[row][col].kind = field[row][col].kind
+    update_cell(field2[row][col], row, col, alives)
 
 proc update_field() =
-  var field2 = field
-  parallel:
-    for row in 0..size_y:
-      for col in 0..size_x:
-        spawn update_cell(field2, row, col)
-  field = field2
+  for row in 0..size_y:
+    update_row(field, field2, row)
+  swap(field, field2)
 
 proc draw_net(step: int) =
   render.setDrawColor(0x1d, 0x1f, 0x21, 0)
@@ -141,12 +158,15 @@ proc draw_net(step: int) =
 var
   evt = sdl2.defaultEvent
   run_game = true
-  pause_game = false
+  pause_game = true
+  step = false
   fpsman: FpsManager
 
 fpsman.init
-# fpsman.setFramerate(1.cint)
+# fpsman.setFramerate(cint(0.9))
 
+render.setDrawColor 255, 255, 255, 0
+render.clear
 
 while run_game:
   while pollEvent(evt):
@@ -157,7 +177,8 @@ while run_game:
       let keyboardEvent = cast[KeyboardEventPtr](addr(evt))
       case keyboardEvent.keysym.scancode
       of SDL_SCANCODE_C:
-        reset_field()
+        reset_field(field)
+        reset_field(field2)
       of SDL_SCANCODE_R:
         random_fill()
       of SDL_SCANCODE_Q, SDL_SCANCODE_ESCAPE:
@@ -165,6 +186,8 @@ while run_game:
         break
       of SDL_SCANCODE_SPACE:
         pause_game = not pause_game
+      of SDL_SCANCODE_S:
+        step = not step
       else:
         discard
     if evt.kind == MouseButtonDown:
@@ -172,28 +195,26 @@ while run_game:
         mouseEvent = cast[MouseButtonEventPtr](addr(evt))
         x = round(floor(mouseEvent.x / cell_size))
         y = round(floor(mouseEvent.y / cell_size))
-      case field[x][y]
+      case field[x][y].kind
       of EmptyCell:
-        field[x][y] = AliveCell
+        field[x][y].kind = AliveCell
       of AliveCell:
-        field[x][y] = EmptyCell
-      else:
-        discard
+        field[x][y].kind = EmptyCell
+      field[x][y].skip = false
 
   # let dt = fpsman.getFramerate() / 1000
   # echo dt
 
-  # render.setDrawColor 0, 0, 0, 255
-  # render.clear
-
   if not pause_game:
     update_field()
+    if step:
+      pause_game = true
 
   draw_field()
-  # texture = render.createTexture(surface)
+
   render.copy(texture, nil, nil)
   render.present
-  # fpsman.delay
+  fpsman.delay
 
 destroy render
 destroy window
