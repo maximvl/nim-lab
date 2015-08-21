@@ -38,13 +38,13 @@ var
                                  window_width,
                                  window_height)
 
-  surface = createRGBSurface(0,
+  surface = createRGBSurface(0.cint,
                              window_width, window_height,
-                             32,
-                             0x00FF0000,
-                             0x0000FF00,
-                             0x000000FF,
-                             0xFF000000)
+                             32.cint,
+                             0x00FF0000.uint32,
+                             0x0000FF00.uint32,
+                             0x000000FF.uint32,
+                             0xFF000000.uint32)
 
 new(field)
 new(field2)
